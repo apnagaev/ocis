@@ -1,0 +1,51 @@
+directives:
+  child-src:
+    - '''self'''
+    - 'blob:'
+  connect-src:
+    - '''self'''
+    - 'data:'
+    - 'blob:'
+    - 'https://companion.nagaev.biz/'
+    - 'wss://companion.nagaev.biz/'
+    - 'https://sso.nagaev.biz/'
+    - 'https://raw.githubusercontent.com/owncloud/awesome-ocis/'
+    - 'https://unpkg.com/detect-gpu@5.0.38/dist/benchmarks/d-intel.json'
+  default-src:
+    - '''none'''
+  font-src:
+    - '''self'''
+    - 'https://unpkg.com/'
+    - 'data:'
+  frame-ancestors:
+    - '''self'''
+  frame-src:
+    - '''self'''
+    - 'blob:'
+    - 'https://drawio.nagaev.biz/'
+    - 'https://collabora.nagaev.biz/'
+  img-src:
+    - '''self'''
+    - 'data:'
+    - 'blob:'
+    - 'https://raw.githubusercontent.com/owncloud/awesome-ocis/'
+    - 'https://collabora.nagaev.biz/'
+  manifest-src:
+    - '''self'''
+  media-src:
+    - '''self'''
+  object-src:
+    - '''self'''
+    - 'blob:'
+  script-src:
+    - '''self'''
+    - '''unsafe-inline'''
+    - 'https://unpkg.com/'
+    - '''unsafe-eval'''
+  style-src:
+    - '''self'''
+    - '''unsafe-inline'''
+  style-src-elem:
+    - '''self'''
+    - '''unsafe-inline'''
+    - 'https://unpkg.com/'
