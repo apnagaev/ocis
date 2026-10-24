@@ -1,0 +1,27 @@
+# Проверки после перезапуска узла. Выполняются на самом узле, запросы идут через lo.
+- name: oCIS answers
+  uri:
+    url: http://127.0.0.1:9200/status.php
+    status_code: 200
+  register: ocis_status
+  until: ocis_status.status == 200
+  retries: 36
+  delay: 5
+
+- name: Collabora answers
+  uri:
+    url: http://127.0.0.1:9980/hosting/discovery
+    status_code: 200
+  register: collabora_status
+  until: collabora_status.status == 200
+  retries: 36
+  delay: 5
+
+- name: Collaboration (WOPI) and Companion ports are open
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ item }}"
+    timeout: 120
+  loop:
+    - 9300
+    - 3020
