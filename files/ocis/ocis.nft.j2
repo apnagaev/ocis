@@ -1,0 +1,59 @@
+# Сгенерировано Ansible. Применять: nft -f /etc/nftables.d/{{ service }}.nft
+# НЕ делайте systemctl restart/reload nftables: /etc/nftables.conf начинается с flush ruleset и снесёт правила Docker.
+#
+# Docker публикует порты через DNAT в prerouting (priority -100). Поэтому фильтруем раньше, priority -150,
+# пока виден настоящий порт назначения и адрес клиента.
+
+table inet {{ service }}
+delete table inet {{ service }}
+
+table inet {{ service }} {
+{% if proxies %}
+  set proxies {
+    type ipv4_addr
+    flags interval
+    auto-merge
+    elements = { {{ proxies | join(', ') }} }
+  }
+{% endif %}
+
+  set nodes {
+    type ipv4_addr
+    flags interval
+    auto-merge
+    elements = { {{ cluster_nodes | join(', ') }} }
+  }
+
+{% if monitoring %}
+  set monitoring {
+    type ipv4_addr
+    flags interval
+    auto-merge
+    elements = { {{ monitoring | join(', ') }} }
+  }
+
+{% endif %}
+  chain prerouting {
+    type filter hook prerouting priority -150; policy accept;
+
+    # проверки самого хоста (плейбук, curl 127.0.0.1)
+    iifname "lo" accept
+
+    # прокси в контейнере на этом же хосте приходит из Docker-сетей
+    tcp dport { {{ (proxy_ports + cluster_ports) | join(', ') }} } ip saddr 172.16.0.0/12 accept
+
+    # reverse proxy и мониторинг: только порты сервисов
+{% if proxies %}
+    tcp dport { {{ proxy_ports | join(', ') }} } ip saddr @proxies accept
+{% endif %}
+{% if monitoring %}
+    tcp dport { {{ proxy_ports | join(', ') }} } ip saddr @monitoring accept
+{% endif %}
+
+    # узлы кластера: gRPC и порты сервисов
+    tcp dport { {{ (proxy_ports + cluster_ports) | join(', ') }} } ip saddr @nodes accept
+
+    # всем остальным, включая IPv6
+    tcp dport { {{ (proxy_ports + cluster_ports) | join(', ') }} } drop
+  }
+}
