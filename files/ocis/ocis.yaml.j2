@@ -1,0 +1,325 @@
+# Сгенерировано Ansible из files/ocis/ocis.yaml.j2. Не редактируйте на сервере.
+# Секреты лежат в {{ env_file }} рядом с этим файлом.
+
+x-common: &common
+  dns:
+    - {{ dns_server }}
+  networks:
+    - ocis
+  restart: always
+
+services:
+  ocis:
+    <<: *common
+    image: owncloud/ocis:{{ ocis_version }}
+    container_name: ocis
+    # Фиксированный IP: сервисы пишут в общий NATS свой адрес в Docker-сети.
+    # Сеть на всех узлах одинаковая, поэтому адрес из реестра всегда ведёт в локальный контейнер.
+    networks:
+      ocis:
+        ipv4_address: {{ ocis_ip }}
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+    depends_on:
+{% for ext in web_extensions %}
+      {{ ext | replace('-', '') }}-init:
+        condition: service_started
+{% endfor %}
+      companion:
+        condition: service_started
+      clamav:
+        condition: service_started
+      tika:
+        condition: service_started
+{% if extra_hosts | default([]) %}
+    extra_hosts:
+{% for h in extra_hosts %}
+      - "{{ h }}"
+{% endfor %}
+{% endif %}
+    ports:
+      - 9200:9200   # HTTP, для reverse proxy
+      - 9142:9142   # gRPC-шлюз REVA, только для узлов кластера
+      - 9233:9233   # только для узлов кластера
+      - 9115:9115   # только для узлов кластера
+    entrypoint:
+      - /bin/sh
+    command: ["-c", "ocis server"]   # ocis.yaml кладёт плейбук; ocis init не нужен, он сгенерировал бы на узлах разные ключи
+    env_file:
+      - {{ env_file }}
+    environment:
+      TZ: "Europe/Moscow"
+      OCIS_URL: {{ ocis_url }}
+      OCIS_LOG_LEVEL: warn
+      OCIS_DEFAULT_LANGUAGE: "ru"
+      OCIS_EXCLUDE_RUN_SERVICES: "idp,idm"
+      OCIS_ADD_RUN_SERVICES: "notifications,antivirus"
+
+      # --- вход через Keycloak ---
+      OCIS_OIDC_ISSUER: {{ oidc_issuer }}
+      WEB_OIDC_CLIENT_ID: ocis
+      WEB_OIDC_SCOPE: "openid profile email roles offline_access groups"
+      PROXY_OIDC_REWRITE_WELLKNOWN: "true"
+      PROXY_OIDC_ACCESS_TOKEN_VERIFY_METHOD: "jwt"
+      PROXY_USER_OIDC_CLAIM: "preferred_username"
+      PROXY_ROLE_ASSIGNMENT_DRIVER: "oidc"
+      PROXY_AUTOPROVISION_ACCOUNTS: "false"   # пользователи берутся из AD
+      GRAPH_ASSIGN_DEFAULT_USER_ROLE: "false"
+      GRAPH_USERNAME_MATCH: "none"
+      PROXY_TLS: "false"                      # TLS терминируется на reverse proxy
+      PROXY_ENABLE_BASIC_AUTH: "false"
+      PROXY_CSP_CONFIG_FILE_LOCATION: /etc/ocis/csp.yaml
+      OCIS_INSECURE: "false"
+
+      # --- интерфейс ---
+      FRONTEND_ENABLE_FAVORITES: "true"
+      FRONTEND_SEARCH_MIN_LENGTH: 3
+      FRONTEND_FULL_TEXT_SEARCH_ENABLED: "true"
+      FRONTEND_SKIP_USER_GROUPS_IN_TOKEN: "true"
+      FRONTEND_ARCHIVER_MAX_SIZE: 72949674000
+      FRONTEND_UPLOAD_MAX_CHUNK_SIZE: 10000000
+      FRONTEND_READONLY_USER_ATTRIBUTES: "user.onPremisesSamAccountName,user.displayName,user.mail,user.passwordProfile,user.appRoleAssignments,user.memberOf,user.accountEnabled"
+      OCIS_SHOW_USER_EMAIL_IN_RESULTS: "true"
+      WEB_APP_STORE_ENABLED: "true"
+      WEB_APP_STORE_REPOSITORIES: '[{"url":"https://marketplace.owncloud.com/api/ocis/v1/apps.json","alias":"ownCloud Marketplace"}]'
+      AUTH_APP_ENABLE_IMPERSONATION: "false"  # администратор не может войти от имени пользователя
+
+      # --- публичные ссылки ---
+      OCIS_SHARING_PUBLIC_SHARE_MUST_HAVE_PASSWORD: "false"
+      OCIS_SHARING_PUBLIC_WRITEABLE_SHARE_MUST_HAVE_PASSWORD: "true"
+      OCIS_PASSWORD_POLICY_DISABLED: "true"
+
+      # --- квота по умолчанию (для роли User задаётся в proxy.yaml) ---
+      GRAPH_SPACES_DEFAULT_QUOTA: {{ default_quota_bytes }}
+
+      # --- почта ---
+      NOTIFICATIONS_SMTP_HOST: "{{ smtp_host }}"
+      NOTIFICATIONS_SMTP_PORT: {{ smtp_port }}
+      NOTIFICATIONS_SMTP_SENDER: "{{ smtp_sender }}"
+      NOTIFICATIONS_SMTP_USERNAME: "{{ smtp_username }}"
+      NOTIFICATIONS_SMTP_ENCRYPTION: "ssltls"
+      NOTIFICATIONS_SMTP_AUTHENTICATION: "auto"
+
+      # --- LDAP / Active Directory, только чтение ---
+      OCIS_LDAP_URI: {{ ldap_uri }}
+{% if ldap_ca_cert | length > 0 %}
+      OCIS_LDAP_INSECURE: "false"
+      OCIS_LDAP_CACERT: /etc/ocis/ldap-ca.crt
+{% else %}
+      OCIS_LDAP_INSECURE: "true"              # сертификат LDAP не проверяется
+{% endif %}
+      OCIS_LDAP_BIND_DN: "{{ ldap_bind_dn }}"
+      OCIS_LDAP_DISABLE_USER_MECHANISM: "none"
+      GRAPH_LDAP_SERVER_UUID: "true"
+      GRAPH_LDAP_SERVER_WRITE_ENABLED: "false"
+      OCIS_LDAP_USER_BASE_DN: "{{ ldap_user_base_dn }}"
+      OCIS_LDAP_USER_OBJECTCLASS: "user"
+      OCIS_LDAP_USER_SCHEMA_ID: "objectGUID"
+      OCIS_LDAP_USER_SCHEMA_ID_IS_OCTETSTRING: "true"
+      OCIS_LDAP_USER_SCHEMA_USERNAME: "sAMAccountName"
+      OCIS_LDAP_LOGIN_ATTRIBUTES: "mail"
+      OCIS_LDAP_USER_FILTER: "{{ ldap_user_filter }}"
+      OCIS_LDAP_GROUP_BASE_DN: "{{ ldap_group_base_dn }}"
+      OCIS_LDAP_GROUP_OBJECTCLASS: "group"
+      OCIS_LDAP_GROUP_SCHEMA_ID: "objectGUID"
+      OCIS_LDAP_GROUP_SCHEMA_ID_IS_OCTETSTRING: "true"
+      OCIS_LDAP_GROUP_SCHEMA_GROUPNAME: "cn"
+      OCIS_LDAP_GROUP_FILTER: "{{ ldap_group_filter }}"
+
+      # --- кластер: внешний NATS ---
+      MICRO_REGISTRY: "nats-js-kv"
+      MICRO_REGISTRY_ADDRESS: "{{ nats_address }}"
+      OCIS_EVENTS_ENDPOINT: "{{ nats_address }}"
+      OCIS_CACHE_STORE: "nats-js-kv"
+      OCIS_CACHE_STORE_NODES: "{{ nats_address }}"
+      OCIS_PERSISTENT_STORE_NODES: "{{ nats_address }}"
+      OCIS_CACHE_DISABLE_PERSISTENCE: "true"
+      OCIS_NATS_ENABLED: "false"
+      GATEWAY_GRPC_ADDR: 0.0.0.0:9142          # шлюз REVA доступен приложениям на других узлах
+      STORAGE_USERS_DATA_GATEWAY_URL: http://ocis:9200/data
+      STORAGE_USERS_OCIS_ASYNC_UPLOADS: "true"
+
+      # --- офис и загрузка из внешних источников ---
+      FRONTEND_APP_HANDLER_SECURE_VIEW_APP_ADDR: com.owncloud.api.collaboration.Collabora
+      COMPANION_DOMAIN: "{{ companion_domain }}"
+      COLLABORA_DOMAIN: "{{ collabora_domain }}"
+
+      # --- полнотекстовый поиск: Tika в той же Docker-сети ---
+      SEARCH_EXTRACTOR_TYPE: tika
+      SEARCH_EXTRACTOR_TIKA_TIKA_URL: http://tika:9998
+
+      # --- антивирус ---
+      ANTIVIRUS_SCANNER_TYPE: "clamav"
+      ANTIVIRUS_CLAMAV_SOCKET: "/var/run/clamav/clamd.sock"
+      ANTIVIRUS_MAX_SCAN_SIZE: "40MB"
+      POSTPROCESSING_STEPS: "virusscan"
+
+      # --- превью ---
+      THUMBNAILS_MAX_INPUT_WIDTH: 4000
+      THUMBNAILS_MAX_INPUT_HEIGHT: 25000
+      THUMBNAILS_MAX_INPUT_IMAGE_FILE_SIZE: "50MB"
+    volumes:
+      - ./conf:/etc/ocis
+      - {{ dir_data }}/data:/var/lib/ocis
+      - {{ dir_data }}/storage:/var/lib/ocis/storage
+      - {{ dir_data }}/apps:/var/lib/ocis/web/assets/apps
+      - {{ dir_data }}/search/docker{{ node }}:/var/lib/ocis/search   # индекс у каждого узла свой
+      - ./tmp-node:/var/lib/ocis/tmp
+      - clamav-socket:/var/run/clamav
+
+  collaboration:
+    <<: *common
+    image: owncloud/ocis:{{ ocis_version }}
+    container_name: ocis_collab
+    networks:
+      ocis:
+        ipv4_address: {{ collaboration_ip }}
+    ports:
+      - 9300:9300   # WOPI HTTP, для reverse proxy
+      - 9301:9301   # gRPC, только для узлов кластера
+    depends_on:
+      ocis:
+        condition: service_started
+      collabora:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+    command: ["-c", "ocis collaboration server"]
+    env_file:
+      - {{ env_file }}
+    environment:
+      TZ: "Europe/Moscow"
+      COLLABORATION_GRPC_ADDR: 0.0.0.0:9301
+      COLLABORATION_HTTP_ADDR: 0.0.0.0:9300
+      COLLABORATION_WOPI_SRC: https://{{ wopi_domain }}
+      COLLABORATION_APP_NAME: "Collabora"
+      COLLABORATION_APP_ADDR: https://{{ collabora_domain }}
+      COLLABORATION_APP_ICON: https://{{ collabora_domain }}/favicon.ico
+      COLLABORATION_APP_INSECURE: "true"
+      COLLABORATION_CS3API_DATAGATEWAY_INSECURE: "true"
+      COLLABORATION_LOG_LEVEL: warn
+      MICRO_REGISTRY: "nats-js-kv"
+      MICRO_REGISTRY_ADDRESS: "{{ nats_address }}"
+      OCIS_CACHE_STORE: "nats-js-kv"
+      OCIS_CACHE_STORE_NODES: "{{ nats_address }}"
+      OCIS_PERSISTENT_STORE_NODES: "{{ nats_address }}"
+      OCIS_CACHE_DISABLE_PERSISTENCE: "true"
+    volumes:
+      - ./conf:/etc/ocis
+
+  collabora-proof-key-init:
+    image: alpine/openssl:latest
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -e /keys/proof_key ] && ! openssl rsa -in /keys/proof_key -check -noout >/dev/null 2>&1; then
+          echo "/keys/proof_key is missing, not a regular file, or invalid; regenerating" >&2
+          rm -rf /keys/proof_key
+        fi
+        if [ ! -f /keys/proof_key ]; then
+          openssl genrsa -out /keys/proof_key 2048
+          chmod 644 /keys/proof_key
+        fi
+    volumes:
+      - ./colconf:/keys
+
+  collabora:
+    <<: *common
+    image: collabora/code:{{ collabora_version }}
+    ports:
+      - 9980:9980   # для reverse proxy; закройте на прокси /browser/dist/admin и /cool/adminws
+    depends_on:
+      collabora-proof-key-init:
+        condition: service_completed_successfully
+    environment:
+      TZ: "Europe/Moscow"
+      aliasgroup1: https://{{ wopi_domain }}:443
+      DONT_GEN_SSL_CERT: "YES"
+      extra_params: |
+        --o:ssl.enable=false \
+        --o:ssl.ssl_verification=false \
+        --o:ssl.termination=true \
+        --o:welcome.enable=false \
+        --o:net.frame_ancestors={{ frame_ancestors }}
+      username: ${COLLABORA_ADMIN_USER}
+      password: ${COLLABORA_ADMIN_PASSWORD}
+    volumes:
+      - ./colconf/proof_key:/etc/coolwsd/proof_key:ro
+    cap_add:
+      - MKNOD
+    logging:
+      driver: local
+    healthcheck:
+      test: ["CMD", "/usr/bin/coolwsd", "--probe"]
+
+  tika:
+    <<: *common
+    image: apache/tika:{{ tika_version }}
+    container_name: ocis_tika
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+    environment:
+      TZ: "Europe/Moscow"
+    # порт наружу не публикуется: oCIS обращается к tika:9998 внутри сети ocis
+
+  companion:
+    <<: *common
+    image: transloadit/companion:{{ companion_version }}
+    container_name: ocis_companion
+    ports:
+      - 3020:3020   # для reverse proxy
+    environment:
+      TZ: "Europe/Moscow"
+      NODE_ENV: production
+      COMPANION_DATADIR: /tmp/companion/
+      COMPANION_DOMAIN: {{ companion_domain }}
+      COMPANION_PROTOCOL: https
+      COMPANION_UPLOAD_URLS: "{{ ocis_url }}/"
+      COMPANION_TUS_DEFERRED_UPLOAD_LENGTH: 'false'
+      COMPANION_CLIENT_ORIGINS: "{{ ocis_url }},https://{{ companion_domain }}"
+    volumes:
+      - companion-data:/tmp/companion/
+
+  clamav:
+    <<: *common
+    image: clamav/clamav:{{ clamav_version }}
+    container_name: ocis_clamav
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+    environment:
+      TZ: "Europe/Moscow"
+    volumes:
+      - clamav-socket:/tmp
+      - clamav-db:/var/lib/clamav
+
+  # --- расширения веб-интерфейса: копируются в {{ dir_data }}/apps и завершаются ---
+{% for ext in web_extensions %}
+  {{ ext | replace('-', '') }}-init:
+    image: owncloud/web-extensions:{{ ext }}-latest
+    user: "1000"
+    volumes:
+      - {{ dir_data }}/apps:/apps
+    entrypoint:
+      - /bin/sh
+    command: ["-c", "cp -R /var/lib/nginx/html/{{ ext }}/ /apps"]
+
+{% endfor %}
+networks:
+  ocis:
+    ipam:
+      driver: default
+      config:
+        - subnet: {{ ocis_subnet }}
+          ip_range: {{ ocis_dynamic_range }}   # отсюда Docker раздаёт адреса остальным контейнерам
+
+volumes:
+  clamav-socket:
+  clamav-db:
+  companion-data:
