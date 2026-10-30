@@ -21,7 +21,7 @@
    :9200 :9300 :9980 │     │ :9200 :9300 :9980
      :3020           │     │ :3020
        ┌─────────────▼┐   ┌▼─────────────┐
-       │ docker1      │◄─►│ docker2      │  gRPC :9142 :9301 :9233 :9115
+       │ node1        │◄─►│ node2        │  gRPC :9142 :9301 :9233 :9115
        │ ocis, collab │   │ ocis, collab │
        │ collabora    │   │ collabora    │
        │ tika, clamav │   │ tika, clamav │
