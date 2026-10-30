@@ -1,4 +1,4 @@
-#должен быть сгенерирован во время init
+# Пример. Настоящий files/ocis/conf/ocis.yaml (не в git) создаётся командой ocis init, см. README
 token_manager:
   jwt_secret: secret
 machine_auth_api_key: secret

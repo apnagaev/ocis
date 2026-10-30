@@ -1,3 +1,4 @@
+# Сгенерировано Ansible из files/ocis/conf/csp.yaml.j2. Адреса — из vars/ocis.yml.
 directives:
   child-src:
     - '''self'''
@@ -6,9 +7,9 @@ directives:
     - '''self'''
     - 'data:'
     - 'blob:'
-    - 'https://companion.example.org/'
-    - 'wss://companion.example.org/'
-    - 'https://sso.example.org/'
+    - 'https://{{ companion_domain }}/'
+    - 'wss://{{ companion_domain }}/'
+    - '{{ oidc_issuer | urlsplit("scheme") }}://{{ oidc_issuer | urlsplit("hostname") }}/'
     - 'https://raw.githubusercontent.com/owncloud/awesome-ocis/'
     - 'https://unpkg.com/detect-gpu@5.0.38/dist/benchmarks/d-intel.json'
   default-src:
@@ -22,14 +23,16 @@ directives:
   frame-src:
     - '''self'''
     - 'blob:'
-    - 'https://drawio.example.org/'
-    - 'https://collabora.example.org/'
+{% if drawio_url %}
+    - '{{ drawio_url }}'
+{% endif %}
+    - 'https://{{ collabora_domain }}/'
   img-src:
     - '''self'''
     - 'data:'
     - 'blob:'
     - 'https://raw.githubusercontent.com/owncloud/awesome-ocis/'
-    - 'https://collabora.example.org/'
+    - 'https://{{ collabora_domain }}/'
   manifest-src:
     - '''self'''
   media-src:

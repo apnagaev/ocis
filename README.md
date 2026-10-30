@@ -38,7 +38,8 @@
 ```
 install_ocis.yaml              # плейбук: firewall + конфиги + rolling restart + очистка
 inventory.example.yml          # пример inventory (скопировать в inventory.yml)
-tasks/healthcheck.yaml         # проверки узла после перезапуска
+vars/ocis.example.yml          # адреса, домены, почта, LDAP, firewall (скопировать в vars/ocis.yml)
+files/ocis/tasks/healthcheck.yaml  # проверки узла после перезапуска
 files/ocis/
   ocis.yaml.j2                 # шаблон docker-compose.yaml
   ocis.nft.j2                  # шаблон правил nftables
@@ -46,8 +47,10 @@ files/ocis/
   owncloud.env                 # НЕ в репозитории: пароли LDAP, SMTP, админки Collabora
   conf/                        # раскладывается в /docker-compose/ocis/conf на каждом узле
     ocis.yaml                  # НЕ в репозитории: ключи кластера и ID (из ocis init)
+    ocis.yaml.example          # как выглядит ocis.yaml (значения-заглушки)
     proxy.yaml.j2              # квота для роли User
-    csp.yaml                   # Content Security Policy
+    csp.yaml.j2                # Content Security Policy (домены из vars/ocis.yml)
+    apps.yaml.j2               # расширения веб-интерфейса, ссылки external-sites
     app-registry.yaml          # какие форматы открывает Collabora
     ldap-ca.crt                # НЕ в репозитории: CA контроллера домена (по желанию)
 ```
@@ -70,6 +73,12 @@ files/ocis/
    ```
    Для каждого хоста: `ansible_host` и `node` (1 или 2, порядок перезапуска). Группа `docker`.
 
+   Настройки инсталляции:
+   ```bash
+   cp vars/ocis.example.yml vars/ocis.yml
+   ```
+   В `vars/ocis.yml` — всё, что отличает вашу инсталляцию: домены, NATS, DNS, почта, LDAP, адреса прокси и мониторинга, draw.io для CSP, ссылки в меню. Файл в `.gitignore`, поэтому код плейбука можно обновлять из git (`git pull`), не трогая свои значения.
+
 2. Секреты. Их два вида:
    - **`files/ocis/conf/ocis.yaml`**: ключи кластера (JWT, machine auth, system user, transfer, service account, WOPI) и ID (system user, admin, storage mount). Создаётся один раз командой `ocis init` и дальше только раскладывается плейбуком, одинаковый на всех узлах. На новой инсталляции получите его так:
      ```bash
@@ -90,17 +99,27 @@ files/ocis/
 
 3. CA контроллера домена (по желанию) положите в `files/ocis/conf/ldap-ca.crt` и задайте `ldap_ca_cert: ldap-ca.crt`: oCIS будет проверять сертификат LDAPS. Имя в сертификате должно совпадать с хостом из `ldap_uri`. По умолчанию `ldap_ca_cert: ""`, и проверка выключена (`OCIS_LDAP_INSECURE=true`).
 
-4. Переменные плейбука (`install_ocis.yaml`, блок `vars`):
+4. Переменные.
+
+   `vars/ocis.yml` (ваши значения, вне git; значения отсюда сильнее блока `vars` в плейбуке):
 
    | Переменная | Назначение |
    |---|---|
-   | `ocis_version`, `collabora_version`, ... | версии образов, меняются только здесь |
-   | `ocis_url`, `oidc_issuer`, `*_domain` | адреса облака, Keycloak, Collabora, WOPI, Companion |
-   | `nats_address` | NATS, общий для кластера |
+   | `ocis_url`, `oidc_issuer`, `*_domain`, `frame_ancestors` | адреса облака, Keycloak, Collabora, WOPI, Companion |
+   | `nats_address`, `dns_server` | NATS, общий для кластера; DNS для контейнеров |
    | `smtp_*`, `ldap_*` | почта и Active Directory (пароли в `owncloud.env`) |
-   | `default_quota_bytes` | квота нового пользователя, по умолчанию 1 ГБ |
    | `proxies`, `monitoring` | кому ещё открыты сервисные порты; узлы кластера и Docker-сети разрешены всегда |
+   | `drawio_url` | draw.io, разрешённый в CSP (`""` — не разрешать) |
+   | `external_sites` | ссылки в меню приложений: `name`, `url`, `icon`, `priority` |
+
+   `install_ocis.yaml`, блок `vars` (общие для всех инсталляций):
+
+   | Переменная | Назначение |
+   |---|---|
+   | `ocis_version`, `collabora_version`, ... | версии образов |
+   | `default_quota_bytes` | квота нового пользователя, по умолчанию 1 ГБ |
    | `proxy_ports`, `cluster_ports` | какие порты закрывает firewall |
+   | `ocis_subnet`, `ocis_ip`, `collaboration_ip` | Docker-сеть, одинаковая на всех узлах |
 
 ## Развертывание
 
@@ -110,7 +129,7 @@ ansible-playbook -i inventory.yml install_ocis.yaml
 
 Плейбук:
 1. Ставит nftables и применяет `/etc/nftables.d/ocis.nft` (с проверкой синтаксиса).
-2. Создаёт каталоги с владельцем `1000:1000`, генерирует `docker-compose.yaml`, копирует `owncloud.env` (`0600`) и раскладывает в `/docker-compose/ocis/conf` конфиги: `ocis.yaml` (`0600`), `csp.yaml`, `app-registry.yaml`, `proxy.yaml` и CA.
+2. Создаёт каталоги с владельцем `1000:1000`, генерирует `docker-compose.yaml`, копирует `owncloud.env` (`0600`) и раскладывает в `/docker-compose/ocis/conf` конфиги: `ocis.yaml` (`0600`), `app-registry.yaml`, а из шаблонов — `csp.yaml`, `apps.yaml`, `proxy.yaml`; и CA.
 3. Скачивает ровно те образы, что указаны в compose (`docker compose pull`).
 4. Перезапускает **узел 1** и ждёт ответа oCIS (`/status.php`), Collabora (`/hosting/discovery`), WOPI и Companion. Затем то же для **узла 2**.
 5. Удаляет неиспользуемые образы. Тома не трогает: в `clamav-db` лежат антивирусные базы.

@@ -1,5 +1,9 @@
 - hosts: docker
   become: yes
+  # Адреса, домены, почта, LDAP и firewall вашей инсталляции — в vars/ocis.yml (не в git).
+  # Шаблон: vars/ocis.example.yml. Значения из vars_files сильнее блока vars ниже.
+  vars_files:
+    - vars/ocis.yml
   vars:
     service: ocis
     dir_compose: "/docker-compose/{{ service }}"
@@ -14,31 +18,6 @@
     tika_version: "latest-full"
     clamav_version: "latest"
 
-    # --- домены и адреса ---
-    ocis_url: https://cloud.example.org
-    oidc_issuer: https://sso.example.org/realms/home
-    companion_domain: companion.example.org
-    collabora_domain: collabora.example.org
-    wopi_domain: wopi.example.org
-    frame_ancestors: "*.example.org"
-    dns_server: 1.1.1.1
-    nats_address: "99.99.99.99:4222"     # внешний NATS, один на кластер
-
-    # --- почта (пароль в owncloud.env) ---
-    smtp_host: smtp.yandex.ru
-    smtp_port: 465
-    smtp_sender: ocis@example.org
-    smtp_username: ocis@example.org
-
-    # --- LDAP / Active Directory (пароль в owncloud.env) ---
-    ldap_uri: ldaps://ad.example.org
-    ldap_ca_cert: ""                        # имя файла в files/ocis/conf/, например ldap-ca.crt; "" = не проверять сертификат
-    ldap_bind_dn: "CN=ocloud,OU=hm,DC=example,DC=org"
-    ldap_user_base_dn: "DC=example,DC=biz"
-    ldap_group_base_dn: "OU=hm,DC=example,DC=org"
-    ldap_user_filter: "(&(|(objectclass=person)(objectclass=user))(|(|(memberof=CN=owncloud_client,OU=Groups,OU=hm,OU=hm,DC=example,DC=org)(primaryGroupID=2198))(|(memberof=CN=owncloud_home,OU=Groups,OU=hm,OU=hm,DC=example,DC=org)(primaryGroupID=2199))))"
-    ldap_group_filter: "(&(|(objectclass=group))(|(cn=owncloud_client)(cn=owncloud_home)))"
-
     # --- квоты ---
     default_quota_bytes: 1073741824         # 1 ГБ: личное пространство нового пользователя
     user_role_id: d7beeea8-8ff4-406b-8fb6-ab2dd81e6b11   # встроенная роль User
@@ -46,8 +25,6 @@
     # --- firewall ---
     # Прокси на тех же хостах уже разрешён: узлы кластера и Docker-сети 172.16.0.0/12.
     # Сюда добавьте внешние прокси и vIP, если они ходят к узлам со своего адреса.
-    proxies: [11.11.11.11,22.22.22.22]
-    monitoring: [33.33.33.33]
     # IP узлов берутся из фактов Ansible (основной интерфейс), задавать вручную не нужно
     cluster_nodes: "{{ groups['docker'] | map('extract', hostvars, ['ansible_facts', 'default_ipv4', 'address']) | list }}"
     proxy_ports: [9200, 9300, 9980, 3020]   # oCIS, WOPI, Collabora, Companion
@@ -133,16 +110,23 @@
       group: '1000'
       mode: '0600'
 
-  - name: Copy oCIS configs (CSP, app registry)
+  - name: Copy oCIS configs (app registry)
     copy:
-      src: "files/{{ service }}/conf/{{ item }}"
+      src: "files/{{ service }}/conf/app-registry.yaml"
+      dest: "{{ dir_conf }}/app-registry.yaml"
+      owner: '1000'
+      group: '1000'
+      mode: '0644'
+
+  - name: Render oCIS configs (CSP, web extensions)
+    template:
+      src: "files/{{ service }}/conf/{{ item }}.j2"
       dest: "{{ dir_conf }}/{{ item }}"
       owner: '1000'
       group: '1000'
       mode: '0644'
     loop:
       - csp.yaml
-      - app-registry.yaml
       - apps.yaml
 
   - name: Render proxy.yaml (role quotas)

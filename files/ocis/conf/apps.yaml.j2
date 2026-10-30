@@ -1,0 +1,22 @@
+# Сгенерировано Ansible из files/ocis/conf/apps.yaml.j2. Адреса — из vars/ocis.yml.
+web:
+  app_store:
+    repositories:
+      - url: "https://marketplace.owncloud.com/api/ocis/v1/apps.json"
+        alias: "ownCloud Marketplace"
+importer:
+  config:
+    companionUrl: https://{{ companion_domain }}
+    supportedClouds:
+      - WebdavPublicLink
+external-sites:
+  config:
+    sites:
+{% for s in external_sites %}
+      - name: {{ s.name }}
+        url: "{{ s.url }}"
+        target: {{ s.target | default('external') }}
+        color: "{{ s.color | default('#0D856F') }}"
+        icon: {{ s.icon }}
+        priority: {{ s.priority | default(50) }}
+{% endfor %}
