@@ -1,0 +1,9 @@
+# Настройки и секреты инсталляции — никогда не коммитим
+inventory.yml
+vars/*.yml
+!vars/*.example.yml
+files/ocis/owncloud.env
+files/ocis/conf/ocis.yaml
+files/ocis/conf/*.crt
+*.vault
+ocis.config.patch
